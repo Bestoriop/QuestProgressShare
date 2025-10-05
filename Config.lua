@@ -18,6 +18,9 @@ function QPS.config.SetDefaultConfigValues()
     if QuestProgressShareConfig.sendInParty == nil then
         QuestProgressShareConfig.sendInParty = 1
     end
+    if QuestProgressShareConfig.sendInRaid == nil then
+        QuestProgressShareConfig.sendInRaid = 0
+    end
 
     -- The rest of the config options
     if QuestProgressShareConfig.sendSelf == nil then
@@ -46,7 +49,7 @@ end
 -- Create the config frame
 QPS.configFrame = CreateFrame("Frame", "QuestProgressShareConfigFrame", UIParent)
 QPS.configFrame:SetWidth(300)
-QPS.configFrame:SetHeight(350)
+QPS.configFrame:SetHeight(380)
 QPS.configFrame:SetPoint("CENTER", 0, 0)
 
 -- Apply pfUI styling if pfUI is available, otherwise use default styling
@@ -107,9 +110,20 @@ local labelSendInParty = QPS.configFrame:CreateFontString("QuestProgressShareCon
 labelSendInParty:SetPoint("LEFT", checkboxSendInParty, "RIGHT", 10, 0)
 labelSendInParty:SetText("Send in Party")
 
+local checkboxSendInRaid = CreateFrame("CheckButton", "QuestProgressShareConfigSendInRaidCheckbox", QPS.configFrame, "UICheckButtonTemplate")
+checkboxSendInRaid:SetPoint("TOPLEFT", 20, -100)
+checkboxSendInRaid:SetChecked(QuestProgressShareConfig.sendInRaid == 1)
+checkboxSendInRaid:SetScript("OnClick", function()
+    QuestProgressShareConfig.sendInRaid = checkboxSendInRaid:GetChecked() and 1 or 0
+end)
+
+local labelSendInRaid = QPS.configFrame:CreateFontString("QuestProgressShareConfigSendInRaidLabel", "OVERLAY", "GameFontNormal")
+labelSendInRaid:SetPoint("LEFT", checkboxSendInRaid, "RIGHT", 10, 0)
+labelSendInRaid:SetText("Send in Raid")
+
 -- Checkbox for sending the messages to the player
 local checkboxSendSelf = CreateFrame("CheckButton", "QuestProgressShareConfigSendSelfCheckbox", QPS.configFrame, "UICheckButtonTemplate")
-checkboxSendSelf:SetPoint("TOPLEFT", 20, -100)
+checkboxSendSelf:SetPoint("TOPLEFT", 20, -130)
 checkboxSendSelf:SetChecked(QuestProgressShareConfig.sendSelf)
 checkboxSendSelf:SetScript("OnClick", function()
     QuestProgressShareConfig.sendSelf = checkboxSendSelf:GetChecked()
@@ -122,7 +136,7 @@ labelSendSelf:SetText("Send to Self")
 
 -- Checkbox for sending the messages to the public chat
 local checkboxSendPublic = CreateFrame("CheckButton", "QuestProgressShareConfigSendPublicCheckbox", QPS.configFrame, "UICheckButtonTemplate")
-checkboxSendPublic:SetPoint("TOPLEFT", 20, -130)
+checkboxSendPublic:SetPoint("TOPLEFT", 20, -160)
 checkboxSendPublic:SetChecked(QuestProgressShareConfig.sendPublic)
 checkboxSendPublic:SetScript("OnClick", function()
     QuestProgressShareConfig.sendPublic = checkboxSendPublic:GetChecked()
@@ -135,7 +149,7 @@ labelSendPublic:SetText("Send to Public")
 
 -- Checkbox for sending only finished objectives
 local checkboxSendOnlyFinished = CreateFrame("CheckButton", "QuestProgressShareConfigSendOnlyFinishedCheckbox", QPS.configFrame, "UICheckButtonTemplate")
-checkboxSendOnlyFinished:SetPoint("TOPLEFT", 20, -160)
+checkboxSendOnlyFinished:SetPoint("TOPLEFT", 20, -190)
 checkboxSendOnlyFinished:SetChecked(QuestProgressShareConfig.sendOnlyFinished)
 checkboxSendOnlyFinished:SetScript("OnClick", function()
     QuestProgressShareConfig.sendOnlyFinished = checkboxSendOnlyFinished:GetChecked()
@@ -148,7 +162,7 @@ labelSendOnlyFinished:SetText("Send only finished")
 
 -- Checkbox for sending starting quests
 local checkboxSendStartingQuests = CreateFrame("CheckButton", "QuestProgressShareConfigSendStartingQuestsCheckbox", QPS.configFrame, "UICheckButtonTemplate")
-checkboxSendStartingQuests:SetPoint("TOPLEFT", 20, -190)
+checkboxSendStartingQuests:SetPoint("TOPLEFT", 20, -220)
 checkboxSendStartingQuests:SetChecked(QuestProgressShareConfig.sendStartingQuests)
 checkboxSendStartingQuests:SetScript("OnClick", function()
     QuestProgressShareConfig.sendStartingQuests = checkboxSendStartingQuests:GetChecked()
@@ -161,7 +175,7 @@ labelSendStartingQuests:SetText("Send starting quests")
 
 -- Checkbox for sending abandoned quests
 local checkboxSendAbandoned = CreateFrame("CheckButton", "QuestProgressShareConfigSendAbandonedCheckbox", QPS.configFrame, "UICheckButtonTemplate")
-checkboxSendAbandoned:SetPoint("TOPLEFT", 20, -220)
+checkboxSendAbandoned:SetPoint("TOPLEFT", 20, -250)
 checkboxSendAbandoned:SetChecked(QuestProgressShareConfig.sendAbandoned)
 checkboxSendAbandoned:SetScript("OnClick", function()
     QuestProgressShareConfig.sendAbandoned = checkboxSendAbandoned:GetChecked()
@@ -174,7 +188,7 @@ labelSendAbandoned:SetText("Send abandoned quests")
 
 -- Checkbox for debug output
 local checkboxDebugEnabled = CreateFrame("CheckButton", "QuestProgressShareConfigDebugEnabledCheckbox", QPS.configFrame, "UICheckButtonTemplate")
-checkboxDebugEnabled:SetPoint("TOPLEFT", 20, -250)
+checkboxDebugEnabled:SetPoint("TOPLEFT", 20, -280)
 checkboxDebugEnabled:SetChecked(QuestProgressShareConfig.debugEnabled)
 checkboxDebugEnabled:SetScript("OnClick", function()
     QuestProgressShareConfig.debugEnabled = checkboxDebugEnabled:GetChecked()
@@ -188,7 +202,7 @@ labelDebugEnabled:SetText("Enable debug logging")
 
 -- Checkbox for verbose debug output
 local checkboxVerboseDebugEnabled = CreateFrame("CheckButton", "QuestProgressShareConfigVerboseDebugEnabledCheckbox", QPS.configFrame, "UICheckButtonTemplate")
-checkboxVerboseDebugEnabled:SetPoint("TOPLEFT", 40, -280)
+checkboxVerboseDebugEnabled:SetPoint("TOPLEFT", 40, -310)
 checkboxVerboseDebugEnabled:SetChecked(QuestProgressShareConfig.verboseDebugEnabled)
 checkboxVerboseDebugEnabled:SetScript("OnClick", function()
     QuestProgressShareConfig.verboseDebugEnabled = checkboxVerboseDebugEnabled:GetChecked()
@@ -221,6 +235,7 @@ end)
 function UpdateConfigFrame()
     checkboxAddonEnabled:SetChecked(QuestProgressShareConfig.enabled == 1)
     checkboxSendInParty:SetChecked(QuestProgressShareConfig.sendInParty == 1)
+    checkboxSendInRaid:SetChecked(QuestProgressShareConfig.sendInRaid == 1)
     checkboxSendSelf:SetChecked(QuestProgressShareConfig.sendSelf)
     checkboxSendPublic:SetChecked(QuestProgressShareConfig.sendPublic)
     checkboxSendOnlyFinished:SetChecked(QuestProgressShareConfig.sendOnlyFinished)

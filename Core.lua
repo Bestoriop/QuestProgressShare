@@ -15,8 +15,12 @@ local completedQuestTitle = nil -- Stores the title of the quest currently being
 local sentCompleted = {} -- Remembers which quests have already had a completion message sent this session to avoid duplicates
 local sentProgressThisSession = {} -- Remembers which progress updates have been sent in this session (per questKey)
 
+local questLogCache = {}
+
 -- Suppress progress messages during initial scan after login/reload
 QPS._suppressInitialProgress = false
+ 
+ QPS._initialScanInProgress = false
 
 -- Local aliases for Blizzard quest log API
 local QPSGet_QuestLogTitle = GetQuestLogTitle
@@ -71,6 +75,7 @@ end
 
 -- Cache for SafeGetQuestIDs results per scan
 local questIDCache = {} -- Caches quest IDs for each quest log index during a scan to avoid redundant lookups
+local GetQuestHash
 
 -- Safely retrieves quest IDs using pfQuest, with fallback and caching
 local function SafeGetQuestIDs(index, title)
@@ -145,6 +150,92 @@ local function DummyQuestProgressScan()
     -- Verbose: dump entire lastProgress table only when verbose debug is enabled
     LogVerboseDebugMessage(QPS_CoreDebugLog, 'QPS DEBUG: DummyQuestProgressScan lastProgress dump:')
     for k,v in pairs(lastProgress) do LogVerboseDebugMessage(QPS_CoreDebugLog, 'QPS DEBUG: lastProgress ' .. k .. ' = ' .. tostring(v)) end
+end
+
+local function StartIncrementalInitialScan(onComplete)
+    if QPS._initialScanInProgress then return end
+    if not QPS.scanFrame then
+        QPS.scanFrame = CreateFrame("Frame")
+    end
+
+    QPS._initialScanInProgress = true
+    QPS._suppressInitialProgress = true
+
+    local numEntries = QPSGet_NumQuestLogEntries()
+    local questIndex = 1
+    local snapshot = {}
+
+    for k in pairs(lastProgress) do lastProgress[k] = nil end
+    questIDCache = {}
+
+    QPS.scanFrame:SetScript("OnUpdate", function()
+        local startTime = GetTime and GetTime() or 0
+        local budget = 0.01 -- ~10ms per frame budget
+
+        while questIndex <= numEntries do
+            local now = GetTime and GetTime() or 0
+            if startTime ~= 0 and (now - startTime) >= budget then
+                break
+            end
+
+            local title, level, _, isHeader, _, _, isComplete = QPSGet_QuestLogTitle(questIndex)
+            if not isHeader and title and IsValidQuestLogIndex(questIndex) then
+                -- Keep objectives updated
+                if pfDB then
+                    local ids = SafeGetQuestIDs(questIndex, title)
+                    local questID = ids and ids[1] and tonumber(ids[1])
+                    if questID then
+                        QPSSelect_QuestLogEntry(questIndex)
+                    end
+                else
+                    QPSSelect_QuestLogEntry(questIndex)
+                end
+
+                local objectives = {}
+                local numObjectives = QPSGet_NumQuestLeaderBoards()
+                for i = 1, numObjectives do
+                    local text, _, finished = QPSGet_QuestLogLeaderBoard(i)
+                    text = NormalizeObjectiveText(text)
+                    objectives[i] = { text = text, finished = finished }
+
+                    local progressKey = title .. "-" .. i
+                    lastProgress[progressKey] = text
+                end
+
+                local hash = GetQuestHash(title, level)
+                snapshot[hash] = {
+                    title = title,
+                    level = level,
+                    isComplete = isComplete,
+                    objectives = objectives,
+                }
+
+                if numObjectives == 0 and isComplete then
+                    local questKey = title .. "-COMPLETE"
+                    lastProgress[questKey] = "Quest completed"
+                elseif numObjectives > 0 and isComplete then
+                    local questKey = title .. "-COMPLETE"
+                    lastProgress[questKey] = "Quest completed"
+                end
+            end
+
+            questIndex = questIndex + 1
+        end
+
+        if questIndex > numEntries then
+            QPS.scanFrame:SetScript("OnUpdate", nil)
+
+            for k in pairs(questLogCache) do questLogCache[k] = nil end
+            for k, v in pairs(snapshot) do questLogCache[k] = v end
+
+            QPS._initialScanInProgress = false
+            QPS._suppressInitialProgress = false
+
+            if onComplete then
+                onComplete(snapshot)
+            end
+        end
+    end)
 end
 
 -- Finds a quest ID by its title using pfQuest DB
@@ -252,10 +343,10 @@ local function IsFirstLoadEver()
 end
 
 -- In-memory cache of last known quest log state (used for diffing quest changes)
-local questLogCache = {}
+questLogCache = questLogCache or {}
 
 -- Quest hash function for robust quest identification (uses name and level)
-local function GetQuestHash(name, level)
+GetQuestHash = function(name, level)
     -- Returns a unique hash for a quest using its name and level, to detect progress changes
     local hash = tostring(name or "") .. "|" .. tostring(level or "")
     return hash
@@ -433,14 +524,8 @@ local function HandleQuestLogUpdate()
     else
         QPS._notifiedCollapsed = false
     end
-    if QPS._suppressInitialProgress then
-        LogDebugMessage(QPS_CoreDebugLog, '[QPS-FIX] Suppressing progress messages during initial scan (QPS._suppressInitialProgress = true)')
-        -- Only update the cache, do not send progress messages
-        local currentSnapshot = BuildQuestLogSnapshot()
-        for k in pairs(questLogCache) do questLogCache[k] = nil end
-        for k, v in pairs(currentSnapshot) do questLogCache[k] = v end
-        -- Also update lastProgress to match snapshot
-        DummyQuestProgressScan()
+    if QPS._suppressInitialProgress or QPS._initialScanInProgress then
+        LogDebugMessage(QPS_CoreDebugLog, '[QPS-FIX] Suppressing progress handling during initial scan')
         return
     end
     -- If a silent refresh is pending, update cache and check for new quests
@@ -873,66 +958,55 @@ function OnEvent()
                     QPS._pendingSilentRefresh = false
                 end
 
-                -- Take initial snapshot for cache
-                local initialSnapshot = BuildQuestLogSnapshot()
-                for k in pairs(questLogCache) do questLogCache[k] = nil end
-                for k, v in pairs(initialSnapshot) do questLogCache[k] = v end
-
-                -- Suppress progress messages during initial scan
-                QPS._suppressInitialProgress = true
-                -- On first load ever, do a dummy scan and update saved variables, but do not send messages
-                if QPS._didFirstLoadInit then
-                    DummyQuestProgressScan()
-
+                StartIncrementalInitialScan(function()
                     -- Save lastProgress to SavedVariables (clear old data first)
-                    LogDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] PLAYER_ENTERING_WORLD: Syncing saved progress')
-                    -- Verbose: dump QPS_SavedProgress before/after only when verbose debug is enabled
-                    LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] PLAYER_ENTERING_WORLD: QPS_SavedProgress BEFORE:')
-                    if QPS_SavedProgress then for k,v in pairs(QPS_SavedProgress) do LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] QPS_SavedProgress['..tostring(k)..'] = '..tostring(v)) end end
-                    -- Use SyncSavedProgress to handle saving logic
-                    SyncSavedProgress()
-                    LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] PLAYER_ENTERING_WORLD: QPS_SavedProgress AFTER:')
-                    if QPS_SavedProgress then for k,v in pairs(QPS_SavedProgress) do LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] QPS_SavedProgress['..tostring(k)..'] = '..tostring(v)) end end
+                    if QPS._didFirstLoadInit then
+                        LogDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] PLAYER_ENTERING_WORLD: Syncing saved progress')
+                        LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] PLAYER_ENTERING_WORLD: QPS_SavedProgress BEFORE:')
+                        if QPS_SavedProgress then for k,v in pairs(QPS_SavedProgress) do LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] QPS_SavedProgress['..tostring(k)..'] = '..tostring(v)) end end
+                        SyncSavedProgress()
+                        LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] PLAYER_ENTERING_WORLD: QPS_SavedProgress AFTER:')
+                        if QPS_SavedProgress then for k,v in pairs(QPS_SavedProgress) do LogVerboseDebugMessage(QPS_CoreDebugLog, '[QPS-DEBUG] QPS_SavedProgress['..tostring(k)..'] = '..tostring(v)) end end
 
-                    -- Also update known quests
-                    for questIndex = 1, QPSGet_NumQuestLogEntries() do
-                        local title, _, _, isHeader = QPSGet_QuestLogTitle(questIndex)
-                        if not isHeader and title then
-                            QPS.knownQuests[title] = true
+                        -- Also update known quests
+                        for questIndex = 1, QPSGet_NumQuestLogEntries() do
+                            local title, _, _, isHeader = QPSGet_QuestLogTitle(questIndex)
+                            if not isHeader and title then
+                                QPS.knownQuests[title] = true
+                            end
                         end
+
+                        if QPS_SavedKnownQuests then
+                            for k in pairs(QPS_SavedKnownQuests) do QPS_SavedKnownQuests[k] = nil end
+                        else
+                            QPS_SavedKnownQuests = {}
+                        end
+                        for k, v in pairs(QPS.knownQuests) do
+                            QPS_SavedKnownQuests[k] = v
+                        end
+
+                        -- Mark first-load initialization as complete
+                        QPS._didFirstLoadInit = false
                     end
 
-                    if QPS_SavedKnownQuests then
-                        for k in pairs(QPS_SavedKnownQuests) do QPS_SavedKnownQuests[k] = nil end
-                    else
-                        QPS_SavedKnownQuests = {}
-                    end
-                    for k, v in pairs(QPS.knownQuests) do
-                        QPS_SavedKnownQuests[k] = v
-                    end
-
-                    -- Mark first-load initialization as complete
-                    QPS._didFirstLoadInit = false
-                else
-                    DummyQuestProgressScan() -- Populates lastProgress for any new quests
-                end
-                QPS._suppressInitialProgress = false
-                LogDebugMessage(QPS_EventDebugLog, '[QPS-DEBUG] On PLAYER_ENTERING_WORLD complete')
-                -- Verbose: dump lastProgress only when verbose debug is enabled
-                LogVerboseDebugMessage(QPS_EventDebugLog, '[QPS-DEBUG] On PLAYER_ENTERING_WORLD, lastProgress after DummyQuestProgressScan:')
-                for k,v in pairs(lastProgress) do LogVerboseDebugMessage(QPS_EventDebugLog, '[QPS-DEBUG] lastProgress key='..tostring(k)..', value='..tostring(v)) end
+                    LogDebugMessage(QPS_EventDebugLog, '[QPS-DEBUG] On PLAYER_ENTERING_WORLD complete')
+                    LogVerboseDebugMessage(QPS_EventDebugLog, '[QPS-DEBUG] On PLAYER_ENTERING_WORLD, lastProgress after incremental scan:')
+                    for k,v in pairs(lastProgress) do LogVerboseDebugMessage(QPS_EventDebugLog, '[QPS-DEBUG] lastProgress key='..tostring(k)..', value='..tostring(v)) end
+                end)
             end
         end)
         return
 
     -- Quest item update: triggers quest log update logic for quest item changes
     elseif event == "QUEST_ITEM_UPDATE" then
+        if QPS._initialScanInProgress then return end
         LogDebugMessage(QPS_EventDebugLog, "[QPS-INFO] HandleQuestLogUpdate triggered by QUEST_ITEM_UPDATE")
         HandleQuestLogUpdate()
         return
 
     -- Quest log update: detects quest accept, completion, and progress
     elseif event == "QUEST_LOG_UPDATE" and QuestProgressShareConfig.enabled == 1 then
+        if QPS._initialScanInProgress then return end
         LogDebugMessage(QPS_EventDebugLog, "[QPS-INFO] HandleQuestLogUpdate triggered by QUEST_LOG_UPDATE")
         HandleQuestLogUpdate()
 

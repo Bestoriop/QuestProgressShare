@@ -62,10 +62,13 @@ function QPS.chatMessage.Send(title, text, finished, objectiveIndex, objectiveFi
         ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "SAY")
     end
     
-    -- Send the message to the party chat
-    if (QuestProgressShareConfig.sendInParty == 1 and GetNumPartyMembers() > 0) then
+    -- Send the message to the raid or party chat
+    if (QuestProgressShareConfig.sendInRaid == 1 and GetNumRaidMembers() > 0) then
+        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "RAID")
+    elseif (QuestProgressShareConfig.sendInParty == 1 and GetNumPartyMembers() > 0) then
         ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "PARTY")
     end
+
 end
 
 -- Sends a quest progress message with a clickable link to chat, party, and/or addon channels based on config.
@@ -94,12 +97,16 @@ function QPS.chatMessage.SendLink(title, text, finished, objectiveIndex, objecti
     if (QuestProgressShareConfig.sendSelf) then
         DEFAULT_CHAT_FRAME:AddMessage("[" .. UnitName("player") .. "]: " .. message)
     end
+    
     -- Send the message to the public chat
     if (QuestProgressShareConfig.sendPublic) then
         ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "SAY")
     end
-    -- Send the message to the party chat
-    if (QuestProgressShareConfig.sendInParty == 1 and GetNumPartyMembers() > 0) then
+    
+    -- Send the message to the raid or party chat
+    if (QuestProgressShareConfig.sendInRaid == 1 and GetNumRaidMembers() > 0) then
+        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "RAID")
+    elseif (QuestProgressShareConfig.sendInParty == 1 and GetNumPartyMembers() > 0) then
         ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "PARTY")
     end
 end
