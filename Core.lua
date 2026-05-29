@@ -310,7 +310,7 @@ local function SendQuestMessage(title, text, finished, questIndex, objectiveInde
         if link and type(link) == "string" and StringLib.Find(link, "|Hquest:") then
             LogDebugMessage(QPS_CoreDebugLog, '[QPS-TRACE] SendQuestMessage: Sending clickable quest link for '..tostring(title)..' text='..tostring(text))
             -- Pass both finished (quest-level) and objectiveFinished (per-objective) to downstream consumers
-            QPS.chatMessage.SendLink(link, text, finished, objectiveIndex, objectiveFinished)
+            QPS.chatMessage.SendLink(link, text, finished, objectiveIndex, objectiveFinished, title)
             if text ~= "Quest accepted" then
                 local questKey = title
                 if objectiveIndex then
