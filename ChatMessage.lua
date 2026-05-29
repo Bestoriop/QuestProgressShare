@@ -1,6 +1,5 @@
 -- ChatMessage.lua: Handles sending quest progress and completion messages to chat, party, and addon channels for QuestProgressShare.
 -- Provides message formatting, coloring, and robust party/addon communication logic.
-
 local QPS = QuestProgressShare
 QPS.chatMessage = {}
 
@@ -9,7 +8,6 @@ local function IsObjectiveComplete(text, finished, objectiveFinished)
     if objectiveFinished == true then
         return true
     end
-    
     local current, required = StringLib.SafeExtractNumbers(text or "")
     if current and required then
         current = tonumber(current)
@@ -18,16 +16,14 @@ local function IsObjectiveComplete(text, finished, objectiveFinished)
             return true
         end
     end
-    
-    -- If finished is true (whole quest complete), always complete
-    if finished then 
-        return true 
+    if finished then
+        return true
     end
-    
     return false
 end
 
 -- Sends a quest progress message to chat, party, and/or addon channels based on config.
+-- Called when pfQuest is not available (no clickable link).
 function QPS.chatMessage.Send(title, text, finished, objectiveIndex, objectiveFinished)
     LogVerboseDebugMessage(QPS_CoreDebugLog, "[QPS-DEBUG] QPS.chatMessage.Send called: title=" .. tostring(title) .. ", text=" .. tostring(text) .. ", finished=" .. tostring(finished) .. ", objectiveIndex=" .. tostring(objectiveIndex) .. ", objectiveFinished=" .. tostring(objectiveFinished))
     if QuestProgressShareConfig then
@@ -35,78 +31,71 @@ function QPS.chatMessage.Send(title, text, finished, objectiveIndex, objectiveFi
     else
         LogDebugMessage(QPS_CoreDebugLog, "[QPS-DEBUG] QuestProgressShareConfig is nil!")
     end
-
-    local message = title .. " - " .. text
-
-    -- Determine color using helper function
     local isObjectiveComplete = IsObjectiveComplete(text, finished, objectiveFinished)
-
-    -- Send the message to the default chatframe
+    -- Send to self (local chat frame only, with color)
     if (QuestProgressShareConfig.sendSelf) then
+        local selfMessage = title .. " - " .. text
         if isObjectiveComplete then
-            DEFAULT_CHAT_FRAME:AddMessage("[" .. UnitName("player") .. "]: " .. message, 0, 1, 0)
+            DEFAULT_CHAT_FRAME:AddMessage("[" .. UnitName("player") .. "]: " .. selfMessage, 0, 1, 0)
         else
-            DEFAULT_CHAT_FRAME:AddMessage("[" .. UnitName("player") .. "]: " .. message, 1, 0, 0)
+            DEFAULT_CHAT_FRAME:AddMessage("[" .. UnitName("player") .. "]: " .. selfMessage, 1, 0, 0)
         end
     end
-
-    -- Color the message green if the objective is complete/over-complete, red otherwise
-    if isObjectiveComplete then
-        message = "|cff00ff00" .. message .. "|r"
-    else
-        message = "|cffff0000" .. message .. "|r"
-    end
-
-    -- Send the message to the public chat
+    -- Plain text for network channels (no color codes)
+    local networkMessage = title .. " - " .. tostring(text or "")
+    -- Send to public (/say)
     if (QuestProgressShareConfig.sendPublic) then
-        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "SAY")
+        SendChatMessage(networkMessage, "SAY")
     end
-    
-    -- Send the message to the raid or party chat
-    if (QuestProgressShareConfig.sendInRaid == 1 and GetNumRaidMembers() > 0) then
-        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "RAID")
-    elseif (QuestProgressShareConfig.sendInParty == 1 and GetNumPartyMembers() > 0) then
-        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "PARTY")
+    -- Send to raid or party
+    if (QuestProgressShareConfig.sendInRaid == 1) then
+        SendChatMessage(networkMessage, "RAID")
+    elseif (QuestProgressShareConfig.sendInParty == 1) then
+        SendChatMessage(networkMessage, "PARTY")
     end
-
 end
 
--- Sends a quest progress message with a clickable link to chat, party, and/or addon channels based on config.
-function QPS.chatMessage.SendLink(title, text, finished, objectiveIndex, objectiveFinished)
-    LogVerboseDebugMessage(QPS_CoreDebugLog, "[QPS-DEBUG] QPS.chatMessage.SendLink called: title=" .. tostring(title) .. ", text=" .. tostring(text) .. ", finished=" .. tostring(finished) .. ", objectiveIndex=" .. tostring(objectiveIndex) .. ", objectiveFinished=" .. tostring(objectiveFinished))
+-- Sends a quest progress message with a clickable pfQuest link to chat, party, and/or addon channels based on config.
+-- Called when pfQuest is available. Uses plainTitle for network channels to avoid server-side filtering.
+function QPS.chatMessage.SendLink(link, text, finished, objectiveIndex, objectiveFinished, plainTitle)
+    LogVerboseDebugMessage(QPS_CoreDebugLog, "[QPS-DEBUG] QPS.chatMessage.SendLink called: link=" .. tostring(link) .. ", text=" .. tostring(text) .. ", finished=" .. tostring(finished) .. ", objectiveIndex=" .. tostring(objectiveIndex) .. ", objectiveFinished=" .. tostring(objectiveFinished))
     if not QuestProgressShareConfig or QuestProgressShareConfig.enabled ~= 1 then
         LogDebugMessage(QPS_CoreDebugLog, "[QPS-DEBUG] SendLink: config missing or disabled! enabled=" .. tostring(QuestProgressShareConfig and QuestProgressShareConfig.enabled))
         return
     end
     LogVerboseDebugMessage(QPS_CoreDebugLog, "[QPS-DEBUG] sendSelf=" .. tostring(QuestProgressShareConfig.sendSelf) .. ", sendPublic=" .. tostring(QuestProgressShareConfig.sendPublic) .. ", sendInParty=" .. tostring(QuestProgressShareConfig.sendInParty))
-
-    local message
     local isObjectiveComplete = IsObjectiveComplete(text, finished, objectiveFinished)
-
+    -- Build colored message with clickable link for local display
+    local message
     if text and text ~= "" then
         if isObjectiveComplete then
-            message = title .. " |cff00ff00- " .. text .. "|r"
+            message = link .. " |cff00ff00- " .. text .. "|r"
         else
-            message = title .. " |cffff0000- " .. text .. "|r"
+            message = link .. " |cffff0000- " .. text .. "|r"
         end
     else
-        message = title
+        message = link
     end
-
-    -- Send the message to the default chatframe
+    -- Send to self (local chat frame only, with colored link)
     if (QuestProgressShareConfig.sendSelf) then
         DEFAULT_CHAT_FRAME:AddMessage("[" .. UnitName("player") .. "]: " .. message)
     end
-    
-    -- Send the message to the public chat
-    if (QuestProgressShareConfig.sendPublic) then
-        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "SAY")
+    -- Plain text for network channels: use plainTitle to avoid server-side filtering of color codes and brackets
+    local safeText = tostring(text or "")
+    local networkMessage
+    if plainTitle and plainTitle ~= "" then
+        networkMessage = plainTitle .. " - " .. safeText
+    else
+        networkMessage = safeText
     end
-    
-    -- Send the message to the raid or party chat
-    if (QuestProgressShareConfig.sendInRaid == 1 and GetNumRaidMembers() > 0) then
-        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "RAID")
-    elseif (QuestProgressShareConfig.sendInParty == 1 and GetNumPartyMembers() > 0) then
-        ChatThrottleLib:SendChatMessage("NORMAL", "QPS", message, "PARTY")
+    -- Send to public (/say)
+    if (QuestProgressShareConfig.sendPublic and QuestProgressShareConfig.sendPublic ~= 0) then
+        SendChatMessage(networkMessage, "SAY")
+    end
+    -- Send to raid or party
+    if (QuestProgressShareConfig.sendInRaid == 1) then
+        SendChatMessage(networkMessage, "RAID")
+    elseif (QuestProgressShareConfig.sendInParty == 1) then
+        SendChatMessage(networkMessage, "PARTY")
     end
 end
