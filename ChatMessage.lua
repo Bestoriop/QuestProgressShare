@@ -89,13 +89,13 @@ function QPS.chatMessage.SendLink(link, text, finished, objectiveIndex, objectiv
         networkMessage = safeText
     end
     -- Send to public (/say)
-    if (QuestProgressShareConfig.sendPublic and QuestProgressShareConfig.sendPublic ~= 0) then
+    if (QuestProgressShareConfig.sendPublic) then
         SendChatMessage(networkMessage, "SAY")
     end
     -- Send to raid or party
-    if (QuestProgressShareConfig.sendInRaid == 1) then
+    if (QuestProgressShareConfig.sendInRaid == 1 and GetNumRaidMembers() > 0) then
         SendChatMessage(networkMessage, "RAID")
-    elseif (QuestProgressShareConfig.sendInParty == 1) then
+    elseif (QuestProgressShareConfig.sendInParty == 1 and GetNumPartyMembers() > 0) then
         SendChatMessage(networkMessage, "PARTY")
     end
 end
